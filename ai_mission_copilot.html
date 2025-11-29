@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Mission Copilot — Command Deck</title>
+
+  <!-- Spacey font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg:#020617;
+      --bg-alt:#030712;
+      --card-bg:rgba(15,23,42,0.78);
+      --border-soft:rgba(148,163,184,0.22);
+      --accent:#38bdf8;
+      --accent-soft:rgba(56,189,248,0.18);
+      --accent-strong:#06b6d4;
+      --ok:#22c55e;
+      --warn:#f97316;
+      --alert:#f97373;
+      --muted:#9ca3af;
+      --text:#e5e7eb;
+      color-scheme: dark;
+    }
+
+    *{
+      box-sizing:border-box;
+      font-family:"Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body{
+      margin:0;
+      min-height:100vh;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(56,189,248,0.20) 0, rgba(2,6,23,0) 50%),
+        radial-gradient(circle at 80% 0%, rgba(56,189,248,0.08) 0, rgba(15,23,42,0) 55%),
+        radial-gradient(circle at 0% 100%, rgba(79,70,229,0.22) 0, #020617 55%);
+      display:flex;
+      flex-direction:column;
+    }
+
+    .starfield{
+      pointer-events:none;
+      position:fixed;
+      inset:0;
+      background-image:
+        radial-gradient(2px 2px at 20% 20%,rgba(148,163,184,0.8),transparent),
+        radial-gradient(1.5px 1.5px at 70% 40%,rgba(148,163,184,0.6),transparent),
+        radial-gradient(1.7px 1.7px at 40% 80%,rgba(148,163,184,0.7),transparent);
+      opacity:0.4;
+      mix-blend-mode:screen;
+      z-index:-2;
+    }
+
+    .glow-orb{
+      position:fixed;
+      width:260px;height:260px;
+      border-radius:999px;
+      filter:blur(40px);
+      opacity:0.75;
+      pointer-events:none;
+      z-index:-1;
+      mix-blend-mode:screen;
+      animation:orbFloat 24s ease-in-out infinite alternate;
+    }
+    .glow-orb.one{
+      background:radial-gradient(circle,#22c55e,#020617);
+      top:-80px;left:-60px;
+    }
+    .glow-orb.two{
+      background:radial-gradient(circle,#38bdf8,#020617);
+      bottom:-90px;right:-40px;
+      animation-delay:-7s;
+    }
+    .glow-orb.three{
+      background:radial-gradient(circle,#f97316,#020617);
+      top:45%;left:70%;
+      width:200px;height:200px;
+      animation-duration:30s;
+    }
+    @keyframes orbFloat{
+      0%{ transform:translate3d(0,0,0); }
+      50%{ transform:translate3d(20px,-18px,0); }
+      100%{ transform:translate3d(-14px,14px,0); }
+    }
+
+    .shell{
+      width:100%;
+      max-width:1240px;
+      margin:14px auto 22px;
+      padding:0 14px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:10px 14px;
+      margin-bottom:14px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,0.35);
+      background:linear-gradient(120deg,rgba(15,23,42,0.9),rgba(15,23,42,0.7));
+      box-shadow:
+        0 18px 40px rgba(15,23,42,0.92),
+        0 0 0 1px rgba(15,23,42,0.8);
+      backdrop-filter:blur(18px) saturate(140%);
+    }
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .brand-icon{
+      width:32px;height:32px;
+      border-radius:12px;
+      background:
+        conic-gradient(from 220deg at 30% 10%,#38bdf8,#22c55e,#4f46e5,#06b6d4,#38bdf8);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+      overflow:hidden;
+    }
+    .brand-icon::after{
+      content:"";
+      position:absolute;
+      inset:3px;
+      border-radius:10px;
+      background:radial-gradient(circle at 25% 15%,rgba(248,250,252,0.85),rgba(15,23,42,0.95));
+      mix-blend-mode:screen;
+      opacity:0.8;
+    }
+    .brand-icon span{
+      position:relative;
+      font-size:16px;
+    }
+    .brand-text-main{
+      font-size:15px;
+      font-weight:600;
+      letter-spacing:0.1em;
+      text-transform:uppercase;
+    }
+    .brand-text-sub{
+      font-size:11px;
+      color:var(--muted);
+    }
+
+    .topbar-center{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:11px;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+    }
+    .pill-soft{
+      padding:5px 11px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,0.4);
+      background:radial-gradient(circle at 0 0,rgba(148,163,184,0.28),rgba(15,23,42,0.9));
+    }
+
+    .topbar-right{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:11px;
+      color:var(--muted);
+    }
+
+    .live-dot{
+      width:9px;height:9px;
+      border-radius:999px;
+      background:#22c55e;
+      box-shadow:0 0 10px rgba(34,197,94,0.9);
+      margin-right:4px;
+      animation:pulse 1.6s infinite;
+    }
+    @keyframes pulse{
+      0%{ transform:scale(0.95);opacity:0.8; }
+      50%{ transform:scale(1.15);opacity:1; }
+      100%{ transform:scale(0.95);opacity:0.8; }
+    }
+
+    header{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin-bottom:14px;
+    }
+    .eyebrow-main{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+      color:var(--muted);
+    }
+    header h1{
+      margin:0;
+      font-size:24px;
+      letter-spacing:0.05em;
+      text-transform:uppercase;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    header h1 span.badge-tag{
+      font-size:11px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(56,189,248,0.7);
+      background:radial-gradient(circle at 0 0,rgba(56,189,248,0.35),rgba(15,23,42,0.9));
+      color:#e0f2fe;
+      text-transform:uppercase;
+      letter-spacing:0.14em;
+    }
+    .subtitle{
+      font-size:13px;
+      color:var(--muted);
+      max-width:640px;
+    }
+
+    main{
+      display:grid;
+      grid-template-columns:minmax(0,1.9fr) minmax(0,1.1fr);
+      gap:16px;
+      margin-top:4px;
+    }
+
+    .card{
+      position:relative;
+      background:radial-gradient(circle at 0 0,rgba(148,163,184,0.16),rgba(15,23,42,0.97));
+      border-radius:20px;
+      padding:14px 14px 16px;
+      border:1px solid rgba(148,163,184,0.35);
+      box-shadow:
+        0 20px 60px rgba(15,23,42,0.95),
+        0 0 0 1px rgba(15,23,42,0.8);
+      backdrop-filter:blur(26px) saturate(145%);
+      overflow:hidden;
+    }
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:-1px;
+      border-radius: inherit;
+      background:conic-gradient(from 210deg,rgba(56,189,248,0.4),rgba(129,140,248,0.05),rgba(15,23,42,0.4),rgba(56,189,248,0.6),rgba(129,140,248,0.1));
+      opacity:0;
+      transition:opacity 0.4s ease;
+      z-index:-1;
+    }
+    .card:hover::before{
+      opacity:0.7;
+    }
+
+    .card-header-main{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      margin-bottom:8px;
+    }
+    .card-title-group{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .eyebrow{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.16em;
+      color:var(--muted);
+    }
+    .card-headline{
+      font-weight:600;
+      font-size:16px;
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+
+    .status-pill{
+      padding:7px 13px;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      gap:7px;
+      border:1px solid rgba(148,163,184,0.4);
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.16em;
+    }
+    .status-pill.ok{
+      border-color:rgba(34,197,94,0.55);
+      color:#bbf7d0;
+      background:radial-gradient(circle at 0 50%,rgba(16,185,129,0.32),rgba(15,23,42,1));
+    }
+    .status-pill.warn{
+      border-color:rgba(249,115,22,0.8);
+      color:#fed7aa;
+      background:radial-gradient(circle at 0 50%,rgba(249,115,22,0.3),rgba(15,23,42,1));
+    }
+    .status-pill.alert{
+      border-color:rgba(248,113,113,0.9);
+      color:#fecaca;
+      background:radial-gradient(circle at 0 50%,rgba(248,113,113,0.32),rgba(15,23,42,1));
+      box-shadow:0 0 16px rgba(248,113,113,0.55);
+    }
+
+    .badge-dot{
+      width:8px;height:8px;
+      border-radius:999px;
+      background:#22c55e;
+    }
+
+    .metrics{
+      display:flex;
+      gap:12px;
+      margin-top:8px;
+    }
+    .metric{
+      flex:1;
+      padding:11px 11px 12px;
+      border-radius:16px;
+      position:relative;
+      overflow:hidden;
+      background:radial-gradient(circle at 0 0,rgba(148,163,184,0.18),rgba(15,23,42,0.98));
+      border:1px solid rgba(148,163,184,0.35);
+      box-shadow:
+        0 10px 26px rgba(15,23,42,0.9),
+        inset 0 0 0 0.5px rgba(255,255,255,0.03);
+      transition:transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+    .metric::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(120deg,transparent,rgba(56,189,248,0.25),transparent);
+      opacity:0;
+      transform:translateX(-40%);
+      transition:opacity 0.35s ease, transform 0.35s ease;
+    }
+    .metric:hover{
+      transform:translateY(-2px);
+      border-color:rgba(248,250,252,0.7);
+      box-shadow:
+        0 18px 38px rgba(15,23,42,0.95),
+        0 0 18px rgba(15,23,42,1);
+    }
+    .metric:hover::after{
+      opacity:1;
+      transform:translateX(0%);
+    }
+    .metric h3{
+      margin:0;
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+      color:var(--muted);
+    }
+    .metric .val{
+      font-size:23px;
+      margin-top:6px;
+      font-weight:600;
+    }
+    .metric .tag{
+      margin-top:3px;
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.14em;
+      color:var(--muted);
+    }
+    .status-ok-border{ border-color:rgba(34,197,94,0.45) !important; }
+    .status-warn-border{ border-color:rgba(249,115,22,0.7) !important; }
+    .status-alert-border{ border-color:rgba(248,113,113,0.85) !important; }
+
+    canvas{
+      width:100%;
+      height:240px;
+      border-radius:16px;
+      background:radial-gradient(circle at 0 0,rgba(15,23,42,0.9),rgba(2,6,23,1));
+      display:block;
+      margin-top:12px;
+      box-shadow:
+        inset 0 0 0 1px rgba(15,23,42,0.9),
+        0 12px 30px rgba(15,23,42,0.95);
+    }
+
+    .chart-note{
+      margin-top:6px;
+      font-size:11px;
+      color:var(--muted);
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .toolbar-row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      margin-top:10px;
+    }
+
+    .chip{
+      font-size:11px;
+      padding:6px 12px;
+      border-radius:999px;
+      background:rgba(15,23,42,0.9);
+      color:var(--muted);
+      border:1px solid rgba(148,163,184,0.4);
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      transition:transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    }
+    .chip:hover{
+      transform:translateY(-1px);
+      background:rgba(15,23,42,1);
+      border-color:rgba(148,163,184,0.9);
+      box-shadow:0 10px 24px rgba(15,23,42,0.95);
+    }
+    .chip.active{
+      border-color:var(--accent);
+      background:rgba(56,189,248,0.12);
+      color:#e0f2fe;
+      box-shadow:0 0 14px rgba(56,189,248,0.4);
+    }
+
+    .proc{
+      margin-top:12px;
+      padding:10px 11px;
+      border-radius:16px;
+      background:radial-gradient(circle at 0 0,rgba(56,189,248,0.22),rgba(15,23,42,1));
+      border:1px solid rgba(56,189,248,0.6);
+      box-shadow:0 14px 30px rgba(15,23,42,0.99);
+    }
+    .proc-title{
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+      color:#bae6fd;
+    }
+    #procStepText{
+      margin-top:8px;
+      font-size:13px;
+    }
+
+    .controls{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+    .input-row{
+      display:flex;
+      gap:8px;
+    }
+
+    .tiny-label{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.16em;
+      color:var(--muted);
+    }
+
+    input[type="text"]{
+      flex:1;
+      padding:9px 12px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,0.55);
+      background:rgba(15,23,42,0.94);
+      color:var(--text);
+      font-size:13px;
+      outline:none;
+      transition:border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+    input[type="text"]:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 1px rgba(56,189,248,0.75);
+      background:rgba(15,23,42,1);
+    }
+
+    button{
+      border-radius:999px;
+      border:none;
+      padding:8px 13px;
+      cursor:pointer;
+      font-size:12px;
+      font-weight:600;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    button.primary{
+      background:radial-gradient(circle at 0 0,var(--accent-strong),var(--accent));
+      color:#0f172a;
+      box-shadow:0 10px 26px rgba(56,189,248,0.55);
+      transition:transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+    }
+    button.primary:hover{
+      transform:translateY(-1px);
+      box-shadow:0 18px 40px rgba(56,189,248,0.7);
+      filter:brightness(1.08);
+    }
+    button.secondary{
+      background:rgba(15,23,42,0.9);
+      color:var(--muted);
+      border:1px solid rgba(148,163,184,0.55);
+      box-shadow:0 8px 22px rgba(15,23,42,0.9);
+      transition:transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+    button.secondary:hover{
+      transform:translateY(-1px);
+      background:rgba(15,23,42,1);
+      border-color:rgba(148,163,184,0.9);
+      box-shadow:0 14px 34px rgba(15,23,42,0.98);
+    }
+
+    .log{
+      max-height:280px;
+      min-height:170px;
+      overflow:auto;
+      padding:8px 10px;
+      border-radius:16px;
+      margin-top:10px;
+      border:1px solid rgba(30,64,175,0.7);
+      background:
+        radial-gradient(circle at 0 0,rgba(15,23,42,0.9),rgba(15,23,42,1)),
+        repeating-linear-gradient(135deg,rgba(15,23,42,1),rgba(15,23,42,1) 3px,rgba(15,23,42,0.98) 3px,rgba(15,23,42,0.98) 6px);
+      box-shadow:
+        inset 0 0 0 0.5px rgba(15,23,42,1),
+        0 14px 30px rgba(15,23,42,0.98);
+    }
+    .log::-webkit-scrollbar{
+      width:6px;
+    }
+    .log::-webkit-scrollbar-thumb{
+      background:rgba(148,163,184,0.65);
+      border-radius:999px;
+    }
+
+    .entry{
+      margin-bottom:8px;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .who-label{
+      font-size:10px;
+      letter-spacing:0.18em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .bubble{
+      max-width:95%;
+      padding:7px 10px;
+      border-radius:11px;
+      font-size:12px;
+      line-height:1.3;
+      display:inline-block;
+      position:relative;
+    }
+    .bubble.user{
+      align-self:flex-end;
+      background:linear-gradient(135deg,rgba(56,189,248,0.25),rgba(56,189,248,0.4));
+      border:1px solid rgba(56,189,248,0.7);
+      color:#e0f2fe;
+      box-shadow:0 8px 18px rgba(15,23,42,0.95);
+    }
+    .bubble.bot{
+      align-self:flex-start;
+      background:linear-gradient(135deg,rgba(30,64,175,0.45),rgba(15,23,42,0.96));
+      border:1px solid rgba(129,140,248,0.7);
+      color:#c7d2fe;
+      box-shadow:0 8px 18px rgba(15,23,42,0.98);
+    }
+    .ts-label{
+      font-size:10px;
+      color:var(--muted);
+      opacity:0.82;
+    }
+
+    footer{
+      margin-top:18px;
+      font-size:11px;
+      color:var(--muted);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    @media (max-width:900px){
+      .shell{ padding:0 10px; }
+      .topbar{ border-radius:18px; }
+      main{ grid-template-columns:1fr; }
+      header h1{ flex-wrap:wrap; }
+      canvas{ height:210px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="starfield"></div>
+  <div class="glow-orb one"></div>
+  <div class="glow-orb two"></div>
+  <div class="glow-orb three"></div>
+
+  <div class="shell">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-icon"><span>🛰️</span></div>
+        <div>
+          <div class="brand-text-main">Mission Copilot</div>
+          <div class="brand-text-sub">AI Decision Support · Life Support &amp; Power</div>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <span class="pill-soft">Smart India Hackathon · Space Domain</span>
+      </div>
+
+      <div class="topbar-right">
+        <span><span class="live-dot"></span> Telemetry Link</span>
+        <span id="voiceStatus">Voice idle</span>
+      </div>
+    </div>
+
+    <!-- HEADER -->
+    <header>
+      <div class="eyebrow-main">Command Deck · ISS-Class Habitat</div>
+      <h1>
+        AI Mission Copilot
+        <span class="badge-tag">Telemetry · Anomaly · Advisory</span>
+      </h1>
+      <p class="subtitle">
+        Real-time AI copilot that ingests CO₂, O₂ and power data, detects unsafe trends and recommends mitigation
+        steps for astronauts and mission control, with voice + text interaction.
+      </p>
+    </header>
+
+    <main>
+      <!-- LEFT: telemetry + chart -->
+      <section class="card">
+        <div class="card-header-main">
+          <div class="card-title-group">
+            <div class="eyebrow">Live Telemetry Stream</div>
+            <div class="card-headline">
+              Life Support · Power Bay 3
+            </div>
+          </div>
+          <div>
+            <div id="sysStatus" class="status-pill ok">
+              <span class="badge-dot"></span>
+              Nominal
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric status-ok-border" id="co2Card">
+            <h3>CO₂ Partial Pressure</h3>
+            <div class="val" id="co2Val">—</div>
+            <div class="tag">ppm</div>
+          </div>
+          <div class="metric status-ok-border" id="o2Card">
+            <h3>O₂ Cabin Pressure</h3>
+            <div class="val" id="o2Val">—</div>
+            <div class="tag">kPa</div>
+          </div>
+          <div class="metric status-ok-border" id="battCard">
+            <h3>Battery State Of Charge</h3>
+            <div class="val" id="battVal">—</div>
+            <div class="tag">percent</div>
+          </div>
+        </div>
+
+        <canvas id="teleChart" width="800" height="240"></canvas>
+
+        <div class="chart-note">
+          <span>CO₂ bands: ≤ 3000 ppm = nominal · 3000–6000 ppm = elevated · &gt; 6000 ppm = critical</span>
+          <span>O₂ kept near Earth-equivalent · Battery should not drop below 20% except in contingency.</span>
+        </div>
+
+        <div class="toolbar-row">
+          <div id="alertWrap"></div>
+          <div style="flex:1"></div>
+          <button id="simSlow" class="chip active">Realtime</button>
+          <button id="simFast" class="chip">Fast Sim</button>
+          <button id="exportLog" class="chip">Export Log</button>
+        </div>
+
+        <div class="proc" id="procBox" style="display:none">
+          <div class="proc-title">Procedure · CO₂ Filter Swap</div>
+          <div id="procStepText">Step 1</div>
+        </div>
+      </section>
+
+      <!-- RIGHT: console -->
+      <aside class="card">
+        <div class="card-header-main">
+          <div class="card-title-group">
+            <div class="eyebrow">AI Copilot Console</div>
+            <div class="card-headline">
+              Ask for status, causes &amp; mitigation
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="tiny-label">Command Input</div>
+          <div class="input-row">
+            <input id="cmdInput" type="text"
+              placeholder="Try: status · why is co2 high · solution · save battery · run filter swap · next" />
+            <button id="sendBtn" class="primary">
+              <span>Send</span>
+            </button>
+          </div>
+
+          <div class="tiny-label">Voice Control</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button id="voiceBtn" class="secondary">
+                <span>🎤 Start Voice</span>
+              </button>
+
+              <!-- Jarvis / Friday / Custom modes -->
+              <div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <label>
+                    <input type="radio" name="voiceMode" value="jarvis" checked />
+                    <span>Jarvis-style</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="voiceMode" value="friday" />
+                    <span>Friday-style</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="voiceMode" value="custom" />
+                    <span>Custom</span>
+                  </label>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  <span>Custom voice:</span>
+                  <select id="voiceSelect"
+                          style="background:#020617;border:1px solid rgba(148,163,184,0.8);color:#e5e7eb;
+                                 padding:4px 6px;border-radius:999px;font-size:11px;">
+                    <option value="">Auto from system</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style="font-size:11px;color:var(--muted);">
+              Say things like “give me status”, “solution for high CO₂”, “how to save battery?”, or “run filter swap”.
+              Movie voices are not cloned — styles are approximated using system voices.
+            </div>
+          </div>
+        </div>
+
+        <div class="tiny-label" style="margin-top:10px;">AI Interaction Log</div>
+        <div class="log" id="logBox"></div>
+
+        <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+          Checklist: type or say <code>run filter swap</code> to begin, then <code>next</code> to step through the CO₂ filter procedure.
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <div>🤖 Architecture: telemetry simulator → Node.js backend → OpenAI model → Copilot UI with speech + text.</div>
+      <div>Demo tip: let CO₂ climb, then ask “status”, “solution for CO₂”, then run the filter swap checklist.</div>
+    </footer>
+  </div>
+
+  <script>
+    // ----------------- STATE -----------------
+    const state = {
+      t: 0,
+      chartWindow: 90,
+      simsPerSec: 1,
+      history: [],
+      procActive: false,
+      procStep: 0,
+      pendingCommand: null,
+      processingCommand: false,
+    };
+
+    // ----------------- DOM -------------------
+    const co2Val   = document.getElementById('co2Val');
+    const o2Val    = document.getElementById('o2Val');
+    const battVal  = document.getElementById('battVal');
+    const co2Card  = document.getElementById('co2Card');
+    const o2Card   = document.getElementById('o2Card');
+    const battCard = document.getElementById('battCard');
+    const sysStatus= document.getElementById('sysStatus');
+    const alertWrap= document.getElementById('alertWrap');
+    const logBox   = document.getElementById('logBox');
+    const cmdInput = document.getElementById('cmdInput');
+    const sendBtn  = document.getElementById('sendBtn');
+    const voiceBtn = document.getElementById('voiceBtn');
+    const voiceStatus = document.getElementById('voiceStatus');
+    const teleCanvas = document.getElementById('teleChart');
+    const ctx = teleCanvas.getContext('2d');
+    const procBox = document.getElementById('procBox');
+    const procStepText = document.getElementById('procStepText');
+    const simFast = document.getElementById('simFast');
+    const simSlow = document.getElementById('simSlow');
+    const exportLog = document.getElementById('exportLog');
+    const voiceSelect = document.getElementById('voiceSelect');
+    const modeRadios = document.querySelectorAll('input[name="voiceMode"]');
+
+    const hist = { t: [], co2: [], o2: [], batt: [] };
+    const procedureSteps = [
+      "Switch life-support loop to bypass.",
+      "Isolate CO₂ scrubber unit B.",
+      "Replace filter canister and verify latch.",
+      "Re-pressurize line, then check delta-P.",
+      "Return loop to normal operation."
+    ];
+
+    let availableVoices = [];
+
+    // ----------------- HELPERS -----------------
+    function nowISO(){ return new Date().toISOString(); }
+
+    function pushLog(who, text){
+      state.history.push({who,text,ts:nowISO()});
+      if(state.history.length>200) state.history.shift();
+      renderLog();
+    }
+
+    function renderLog(){
+      logBox.innerHTML = '';
+      const recent = state.history.slice(-40);
+      for(const e of recent){
+        const wrap = document.createElement('div');
+        wrap.className = 'entry';
+        const who = document.createElement('div');
+        who.className = 'who-label';
+        who.textContent = e.who;
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble ' + (e.who.startsWith('USER') ? 'user' : 'bot');
+        bubble.textContent = e.text;
+        const ts = document.createElement('div');
+        ts.className = 'ts-label';
+        ts.textContent = new Date(e.ts).toLocaleTimeString();
+        wrap.appendChild(who);
+        wrap.appendChild(bubble);
+        wrap.appendChild(ts);
+        logBox.appendChild(wrap);
+      }
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    // ----------------- SIMULATION -----------------
+    async function simulateFrame(){
+      state.t++;
+      const t = state.t;
+
+      // simple synthetic signals – change if you want different behaviour
+      const co2 = +(650 + 200*Math.sin(t/20) + (Math.random()*20-10)).toFixed(1);
+      const o2  = +(101 + 3*Math.sin(t/30) + (Math.random()*0.4-0.2)).toFixed(2);
+      const batt = Math.max(5, +(85 - t*0.02 + (Math.random()*0.1-0.05)).toFixed(1));
+
+      hist.t.push(t);
+      hist.co2.push(co2);
+      hist.o2.push(o2);
+      hist.batt.push(batt);
+      if(hist.t.length > state.chartWindow){
+        hist.t.shift(); hist.co2.shift(); hist.o2.shift(); hist.batt.shift();
+      }
+
+      co2Val.textContent   = co2;
+      o2Val.textContent    = o2;
+      battVal.textContent  = batt;
+
+      const tags = [];
+      if (co2 > 6000) {
+        tags.push({ lvl: "ALERT", msg: "CO₂ very high — immediate mitigation required" });
+      } else if (co2 > 3000) {
+        tags.push({ lvl: "WARN", msg: "CO₂ above nominal crew comfort range" });
+      }
+      if (batt < 10) {
+        tags.push({ lvl: "ALERT", msg: "Battery critical" });
+      } else if (batt < 20) {
+        tags.push({ lvl: "WARN", msg: "Battery low" });
+      }
+
+      co2Card.className  = 'metric ' + (co2>6000 ? 'status-alert-border' : (co2>3000 ? 'status-warn-border' : 'status-ok-border'));
+      battCard.className = 'metric ' + (batt<10 ? 'status-alert-border' : (batt<20 ? 'status-warn-border' : 'status-ok-border'));
+      o2Card.className   = 'metric status-ok-border';
+
+      if(tags.length===0){
+        sysStatus.textContent = 'Nominal';
+        sysStatus.className = 'status-pill ok';
+        const dot = sysStatus.querySelector('.badge-dot');
+        if(dot) dot.style.background = '#22c55e';
+        alertWrap.innerHTML = '';
+      } else {
+        const hasAlert = tags.some(t=>t.lvl==='ALERT');
+        sysStatus.textContent = hasAlert ? 'Alert' : 'Warning';
+        sysStatus.className = 'status-pill ' + (hasAlert ? 'alert' : 'warn');
+        const dot = sysStatus.querySelector('.badge-dot');
+        if(dot) dot.style.background = hasAlert ? '#f97373' : '#f97316';
+        alertWrap.innerHTML = tags.map(t =>
+          `<span class="badge ${t.lvl==='ALERT'?'alert':'warn'}">
+             <span class="badge-dot"></span>${t.msg}
+           </span>`
+        ).join('');
+      }
+
+      if(state.pendingCommand && !state.processingCommand){
+        state.processingCommand = true;
+        const cmd = state.pendingCommand;
+        state.pendingCommand = null;
+        pushLog('USER (command)', cmd);
+        const reply = await handleCommand(cmd, {co2,o2,batt}, tags);
+        if(reply){
+          pushLog('AI COPILOT', reply);
+          speakText(reply);
+        }
+        state.processingCommand = false;
+      }
+
+      drawChart();
+      updateProcedureUI();
+    }
+
+    function drawChart(){
+      const cw = teleCanvas.width = teleCanvas.clientWidth * window.devicePixelRatio;
+      const ch = teleCanvas.height = teleCanvas.clientHeight * window.devicePixelRatio;
+      ctx.clearRect(0,0,cw,ch);
+      ctx.save();
+      ctx.scale(window.devicePixelRatio,window.devicePixelRatio);
+      const w = teleCanvas.clientWidth, h = teleCanvas.clientHeight;
+
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0,0,w,h);
+
+      ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+      ctx.lineWidth = 1;
+      for(let i=0;i<5;i++){
+        const y=(h/4)*i;
+        ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();
+      }
+
+      const n = hist.t.length;
+      if(n<2){ ctx.restore();return; }
+      const pad=10;
+      const xStep=(w-pad*2)/Math.max(1,n-1);
+
+      const co2min=Math.min(...hist.co2), co2max=Math.max(...hist.co2);
+      const co2Range=Math.max(40,co2max-co2min);
+      ctx.beginPath();
+      for(let i=0;i<n;i++){
+        const x=pad+i*xStep;
+        const y=pad+(h-pad*2)*(1-(hist.co2[i]-co2min)/co2Range);
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      ctx.lineWidth=2;
+      ctx.strokeStyle='#38bdf8';
+      ctx.stroke();
+
+      const o2min=Math.min(...hist.o2), o2max=Math.max(...hist.o2);
+      const o2Range=Math.max(0.5,o2max-o2min);
+      ctx.beginPath();
+      for(let i=0;i<n;i++){
+        const x=pad+i*xStep;
+        const y=pad+(h-pad*2)*(1-(hist.o2[i]-o2min)/o2Range);
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      ctx.lineWidth=1.4;
+      ctx.strokeStyle='#4ade80';
+      ctx.stroke();
+
+      const bmin=Math.min(...hist.batt), bmax=Math.max(...hist.batt);
+      const bRange=Math.max(5,bmax-bmin);
+      ctx.beginPath();
+      for(let i=0;i<n;i++){
+        const x=pad+i*xStep;
+        const y=pad+(h-pad*2)*(1-(hist.batt[i]-bmin)/bRange);
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      ctx.lineWidth=1.4;
+      ctx.strokeStyle='#fbbf24';
+      ctx.stroke();
+
+      ctx.font='11px system-ui';
+      ctx.fillStyle='#9ca3af';
+      ctx.fillText('CO₂',8,h-8);
+      ctx.fillStyle='#38bdf8';ctx.fillRect(28,h-14,10,4);
+      ctx.fillStyle='#9ca3af';ctx.fillText('O₂',60,h-8);
+      ctx.fillStyle='#4ade80';ctx.fillRect(78,h-14,10,4);
+      ctx.fillStyle='#9ca3af';ctx.fillText('Battery',106,h-8);
+      ctx.fillStyle='#fbbf24';ctx.fillRect(158,h-14,10,4);
+
+      ctx.restore();
+    }
+
+    function updateProcedureUI(){
+      if(state.procActive){
+        procBox.style.display='block';
+        const idx=Math.min(state.procStep,procedureSteps.length-1);
+        procStepText.textContent=`Step ${idx+1} · ${procedureSteps[idx]}`;
+      } else {
+        if(state.procStep>0 && state.procStep>=procedureSteps.length-1){
+          procBox.style.display='block';
+          procStepText.textContent='Procedure complete.';
+        } else {
+          procBox.style.display='none';
+        }
+      }
+    }
+
+    // ----------------- BACKEND CALL -----------------
+    async function handleCommand(cmd, latestFrame, tags){
+      const raw = (''+cmd).trim();
+      if(!raw) return null;
+      const lc = raw.toLowerCase();
+      let augmented = raw;
+
+      if(lc.includes('run filter swap') || lc.includes('start filter swap') || lc.includes('co2 filter')){
+        state.procActive = true;
+        state.procStep = 0;
+        augmented += "\n\nContext: The crew is starting the CO₂ filter swap checklist. Explain briefly what the first step should accomplish and why it matters.";
+      } else if(lc === 'next'){
+        if(state.procActive){
+          state.procStep += 1;
+          const stepIndex = Math.min(state.procStep, procedureSteps.length-1);
+          augmented += `\n\nContext: The crew is on step ${stepIndex+1} of a CO₂ filter swap checklist. In 1–2 sentences, remind them what to do in this step and the main safety point.`;
+        } else {
+          augmented += "\n\nContext: There is no active procedure. If CO₂ is high, suggest starting the CO₂ filter swap checklist.";
+        }
+      }
+
+      try{
+        const response = await fetch("http://localhost:3000/api/copilot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            command: augmented,
+            telemetry: {
+              co2: latestFrame.co2,
+              o2: latestFrame.o2,
+              batt: latestFrame.batt,
+            },
+            history: state.history.slice(-8).map(h => ({
+              role: h.who.startsWith("USER") ? "user" : "assistant",
+              content: h.text,
+            })),
+          }),
+        });
+        const data = await response.json();
+        if(data.reply) return data.reply;
+        return "I encountered an issue while generating a response.";
+      }catch(e){
+        console.error(e);
+        return "Copilot backend is not reachable. Please check that the Node server is running.";
+      }
+    }
+
+    // ----------------- VOICES (Jarvis / Friday / Custom) -----------------
+    function populateVoices(){
+      if (!('speechSynthesis' in window)) return;
+      const allVoices = window.speechSynthesis.getVoices();
+      if (!allVoices || !allVoices.length) return;
+
+      availableVoices = allVoices.filter(v => v.lang.toLowerCase().startsWith('en'));
+
+      if (!voiceSelect) return;
+
+      const current = voiceSelect.value;
+      voiceSelect.innerHTML = "";
+
+      const autoOpt = document.createElement('option');
+      autoOpt.value = "";
+      autoOpt.textContent = "Auto from system";
+      voiceSelect.appendChild(autoOpt);
+
+      availableVoices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.name;
+        opt.textContent = `${v.name} (${v.lang})`;
+        voiceSelect.appendChild(opt);
+      });
+
+      if (current && availableVoices.some(v => v.name === current)) {
+        voiceSelect.value = current;
+      }
+    }
+
+    function getSelectedMode(){
+      let mode = "jarvis";
+      modeRadios.forEach(r => { if (r.checked) mode = r.value; });
+      return mode;
+    }
+
+    function pickJarvisStyleVoice(){
+      if (!availableVoices.length) return null;
+      const english = availableVoices;
+      const gb = english.filter(v => v.lang.toLowerCase().includes('gb')); // British
+      if (gb.length) return gb[0];
+      return english[0];
+    }
+
+    function pickFridayStyleVoice(){
+      if (!availableVoices.length) return null;
+      const english = availableVoices;
+      const inVoices = english.filter(v => v.lang.toLowerCase().includes('in'));
+      const usVoices = english.filter(v => v.lang.toLowerCase().includes('us'));
+      if (inVoices.length) return inVoices[0];
+      if (usVoices.length) return usVoices[0];
+      return english[0];
+    }
+
+    function pickCustomVoice(){
+      if (!availableVoices.length) return null;
+      const name = voiceSelect.value;
+      if (!name) return null;
+      return availableVoices.find(v => v.name === name) || null;
+    }
+
+    function speakText(text){
+      try{
+        if(!('speechSynthesis' in window)) return;
+        const u = new SpeechSynthesisUtterance(text);
+
+        const mode = getSelectedMode();
+        let voice = null;
+
+        if (mode === 'jarvis') {
+          voice = pickJarvisStyleVoice();
+          u.rate = 0.95;  // slightly slower, formal
+          u.pitch = 0.95;
+        } else if (mode === 'friday') {
+          voice = pickFridayStyleVoice();
+          u.rate = 1.05;  // slightly quicker, lighter
+          u.pitch = 1.05;
+        } else {
+          voice = pickCustomVoice();
+          u.rate = 1.0;
+          u.pitch = 1.0;
+        }
+
+        if (!voice && availableVoices.length) {
+          voice = availableVoices[0];
+        }
+        if (voice) {
+          u.voice = voice;
+          voiceStatus.textContent = `Speaking in ${mode} mode with: ${voice.name} (${voice.lang})`;
+        } else {
+          voiceStatus.textContent = `Speaking in ${mode} mode (default browser voice)`;
+        }
+
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      }catch(e){ console.warn(e); }
+    }
+
+    if ('speechSynthesis' in window) {
+      populateVoices();
+      window.speechSynthesis.onvoiceschanged = populateVoices;
+    }
+
+    // ----------------- SPEECH RECOGNITION -----------------
+    let recognition = null;
+    let recognizing = false;
+
+    function initSpeechRec(){
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+      if(!SR) return null;
+      const r = new SR();
+      r.continuous = false;
+      r.interimResults = false;
+      r.lang = 'en-US';
+      r.onstart = () => {
+        recognizing = true;
+        voiceStatus.textContent = 'Listening...';
+        voiceBtn.textContent = '⏹️ Stop Voice';
+      };
+      r.onend = () => {
+        recognizing = false;
+        voiceStatus.textContent = 'Voice idle';
+        voiceBtn.textContent = '🎤 Start Voice';
+      };
+      r.onerror = (e) => {
+        recognizing = false;
+        voiceStatus.textContent = 'Voice error';
+        console.warn(e);
+      };
+      r.onresult = (ev) => {
+        const t = ev.results[0][0].transcript;
+        pushLog('USER (voice)', t);
+        state.pendingCommand = t;
+      };
+      return r;
+    }
+
+    recognition = initSpeechRec();
+    if(!recognition){
+      voiceStatus.textContent = 'Voice API not available';
+    }
+
+    // ----------------- UI EVENTS -----------------
+    sendBtn.addEventListener('click', ()=>{
+      const v = cmdInput.value.trim();
+      if(!v) return;
+      pushLog('USER', v);
+      state.pendingCommand = v;
+      cmdInput.value = '';
+    });
+
+    cmdInput.addEventListener('keydown',(e)=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        sendBtn.click();
+      }
+    });
+
+    voiceBtn.addEventListener('click', ()=>{
+      if(!recognition){
+        alert('SpeechRecognition not supported in this browser. Use Chrome/Edge.');
+        return;
+      }
+      if(!recognizing){
+        try{ recognition.start(); } catch(e){ console.warn(e); }
+      } else {
+        recognition.stop();
+      }
+    });
+
+    simFast.addEventListener('click', ()=>{
+      state.simsPerSec = 4;
+      simFast.classList.add('active');
+      simSlow.classList.remove('active');
+    });
+
+    simSlow.addEventListener('click', ()=>{
+      state.simsPerSec = 1;
+      simSlow.classList.add('active');
+      simFast.classList.remove('active');
+    });
+
+    exportLog.addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(state.history,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ai_copilot_log.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // ----------------- MAIN LOOP -----------------
+    async function runLoop(){
+      await simulateFrame();
+      const delay = 1000 / state.simsPerSec;
+      setTimeout(runLoop, delay);
+    }
+
+    function initChart(){
+      const cw = teleCanvas.width = teleCanvas.clientWidth * window.devicePixelRatio;
+      const ch = teleCanvas.height = teleCanvas.clientHeight * window.devicePixelRatio;
+      ctx.clearRect(0,0,cw,ch);
+    }
+
+    initChart();
+    pushLog('AI COPILOT','I am online and monitoring CO₂, O₂ and battery. Ask for "status", "solution for CO₂", "how to save battery", or say "run filter swap" to start the checklist.');
+    runLoop();
+  </script>
+</body>
+</html>
