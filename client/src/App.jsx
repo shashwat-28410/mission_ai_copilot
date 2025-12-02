@@ -182,7 +182,7 @@ function App() {
 
   const [userText, setUserText] = useState("");
   const [assistantText, setAssistantText] = useState("");
-  const [status, setStatus] = useState("SYSTEM READY");
+  const [status, setStatus] = useState();
   const [error, setError] = useState("");
 
   const [history, setHistory] = useState([]);
@@ -304,7 +304,7 @@ function App() {
 
     recognition.onstart = () => {
       setIsListening(true);
-      setStatus("LISTENING FOR COMMAND");
+      setStatus();
     };
 
     recognition.onresult = (event) => {
@@ -326,7 +326,7 @@ function App() {
     recognition.onend = () => {
       setIsListening(false);
       if (!isSpeaking && !isLoading) {
-        setStatus("IDLE – AWAITING COMMAND");
+        setStatus();
       }
     };
 
@@ -479,7 +479,7 @@ function App() {
     utterance.onend = () => {
       setIsSpeaking(false);
       if (!isListening && !isLoading) {
-        setStatus("IDLE – AWAITING COMMAND");
+        setStatus();
       }
     };
 
