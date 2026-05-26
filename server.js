@@ -3,8 +3,13 @@ import cors from "cors";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import connectDb from "./config/Db.js";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -26,11 +31,9 @@ const client = new OpenAI({
 });
 
 // -----------------------------
-// HEALTH CHECK
+// SERVE FRONTEND (PRODUCTION)
 // -----------------------------
-app.get("/", (req, res) => {
-  res.send("Mission Copilot backend is online ✅");
-});
+app.use(express.static(path.join(__dirname, "client/dist")));
 
 // -----------------------------
 // MAIN AI ROUTE
@@ -245,6 +248,13 @@ Emergency Mode: ${emergencyMode}`
       details: err.message || "Unknown error",
     });
   }
+});
+
+// -----------------------------
+// CATCH-ALL FOR FRONTEND
+// -----------------------------
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "client/dist", "index.html"));
 });
 
 // -----------------------------

@@ -1,10 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
 
-const BACKEND_URL = "http://localhost:8080/api/copilot";
+const BACKEND_URL = "/api/copilot";
 
 // -------------------- MISSION CONSTANTS --------------------
 const MOON_DISTANCE_KM = 384400;
 const MISSION_DURATION_SEC = 48 * 60 * 60; // 2 days
+
+// Food + predictive constants
+const FOOD_START_PERCENT = 100;
+const FOOD_CONSUMPTION_PERCENT_PER_HOUR = 1.5; // total ~72% over 48h
+const FOOD_MIN_SAFE_PERCENT = 25;
+
+const SAFE_MIN_O2 = 94; // %
+const WARN_MAX_CO2 = 0.06; // %
+const SAFE_MIN_POWER = 75; // %
+const WARN_MIN_POWER = 60; // %
+const SAFE_MIN_COMMS = 80; // %
+const WARN_MIN_COMMS = 60; // %
+const SAFE_MIN_CABIN = 90; // %
+const WARN_MIN_CABIN = 75; // %
 
 // 0–1 normalized progress values along the mission timeline
 const MISSION_PHASES = [
@@ -97,7 +111,8 @@ const MISSION_PHASES = [
 const SPECIAL_EVENTS = [
   {
     id: "solar-flare",
-    label: "Minor solar flare detected – radiation shields holding within safe limits.",
+    label:
+      "Minor solar flare detected – radiation shields holding within safe limits.",
     triggerProgress: 0.22,
   },
   {
@@ -112,16 +127,6 @@ const SPECIAL_EVENTS = [
   },
 ];
 
-function getPhaseForProgress(progress) {
-  const p = clamp(progress, 0, 1);
-  let current = MISSION_PHASES[0];
-  for (const phase of MISSION_PHASES) {
-    if (p >= phase.startProgress) current = phase;
-    else break;
-  }
-  return current;
-}
-
 // crew list with roles
 const CREW = [
   { name: "Rajveer", role: "Mission Commander" },
@@ -134,6 +139,16 @@ const CREW = [
 
 function clamp(num, min, max) {
   return Math.min(max, Math.max(min, num));
+}
+
+function getPhaseForProgress(progress) {
+  const p = clamp(progress, 0, 1);
+  let current = MISSION_PHASES[0];
+  for (const phase of MISSION_PHASES) {
+    if (p >= phase.startProgress) current = phase;
+    else break;
+  }
+  return current;
 }
 
 function formatMissionTime(seconds) {
@@ -173,6 +188,143 @@ function playChime() {
   }
 }
 
+// -------------------- NASA-STYLE PREDICTIVE HEALTH (PHM) -----
+function getPredictiveInsights(telemetry, metrics, missionTimeSec) {
+  const remainingSec = Math.max(MISSION_DURATION_SEC - missionTimeSec, 0);
+
+  // Time to Moon using current distance + velocity (km/h -> km/s)
+  let timeToMoonSec = null;
+  let willReachMoonBeforeEnd = null;
+  const speedKms = telemetry.velocity > 0 ? telemetry.velocity / 3600 : 0;
+
+  if (speedKms > 0 && telemetry.distanceFromMoon > 0) {
+    timeToMoonSec = telemetry.distanceFromMoon / speedKms;
+    willReachMoonBeforeEnd = timeToMoonSec <= remainingSec;
+  }
+
+  // Projected food at mission end
+  const foodRatePerSec = FOOD_CONSUMPTION_PERCENT_PER_HOUR / 3600;
+  const projectedFood = clamp(
+    telemetry.foodPercent - foodRatePerSec * remainingSec,
+    0,
+    100
+  );
+
+  const warnings = [];
+
+  // 1) Trajectory / schedule risk
+  if (timeToMoonSec != null) {
+    const margin = remainingSec - timeToMoonSec;
+    if (margin < 0) {
+      warnings.push({
+        id: "trajectory-critical",
+        severity: "critical",
+        label: "Trajectory",
+        detail:
+          "Current velocity is too low to reach the Moon before mission end. A correction burn is required.",
+      });
+    } else if (margin < 6 * 3600) {
+      warnings.push({
+        id: "trajectory-warning",
+        severity: "warning",
+        label: "Trajectory",
+        detail:
+          "Low time margin to lunar arrival. Recommend reviewing burn plan to increase schedule buffer.",
+      });
+    }
+  }
+
+  // 2) Food / life support
+  if (projectedFood < FOOD_MIN_SAFE_PERCENT) {
+    warnings.push({
+      id: "food",
+      severity: projectedFood < FOOD_MIN_SAFE_PERCENT / 2 ? "critical" : "warning",
+      label: "Food Supplies",
+      detail:
+        projectedFood < FOOD_MIN_SAFE_PERCENT / 2
+          ? `Food reserves are projected to be extremely low (${projectedFood.toFixed(
+              1
+            )}%) by mission end. Immediate rationing or mission replanning recommended.`
+          : `Food reserves are projected to drop below safe margin (${FOOD_MIN_SAFE_PERCENT}%). Consider rationing or shortening the mission.`,
+    });
+  }
+
+  // 3) O2 / CO2 envelope
+  if (telemetry.o2 < SAFE_MIN_O2) {
+    warnings.push({
+      id: "o2",
+      severity: "critical",
+      label: "Oxygen",
+      detail: `Oxygen levels have dipped below safe threshold (${SAFE_MIN_O2}%). Check life support systems.`,
+    });
+  }
+  if (telemetry.co2 > WARN_MAX_CO2) {
+    warnings.push({
+      id: "co2",
+      severity: "warning",
+      label: "Carbon Dioxide",
+      detail: `CO₂ levels are trending high (${telemetry.co2.toFixed(
+        3
+      )}%). Scrubber performance should be verified.`,
+    });
+  }
+
+  // 4) Power grid
+  if (metrics.power < WARN_MIN_POWER) {
+    warnings.push({
+      id: "power",
+      severity: metrics.power < SAFE_MIN_POWER ? "critical" : "warning",
+      label: "Power Grid",
+      detail:
+        metrics.power < SAFE_MIN_POWER
+          ? "Power reserves are below safe margin. Non-critical loads should be shed."
+          : "Power reserves are trending low. Recommend planning load shedding if trend continues.",
+    });
+  }
+
+  // 5) Comms quality
+  if (metrics.comms < WARN_MIN_COMMS) {
+    warnings.push({
+      id: "comms",
+      severity: metrics.comms < SAFE_MIN_COMMS ? "critical" : "warning",
+      label: "Communications",
+      detail:
+        metrics.comms < SAFE_MIN_COMMS
+          ? "Severe degradation in communications link. Risk of loss-of-signal during critical events."
+          : "Communications quality reduced. Link margin is low; antenna pointing and power should be checked.",
+    });
+  }
+
+  // 6) Cabin integrity
+  if (metrics.cabin < WARN_MIN_CABIN) {
+    warnings.push({
+      id: "cabin",
+      severity: metrics.cabin < SAFE_MIN_CABIN ? "critical" : "warning",
+      label: "Cabin Integrity",
+      detail:
+        metrics.cabin < SAFE_MIN_CABIN
+          ? "Cabin integrity indicates possible structural or pressure issues. Immediate inspection recommended."
+          : "Minor degradation in cabin integrity detected. Monitor seals and pressure trends.",
+    });
+  }
+
+  if (warnings.length === 0) {
+    warnings.push({
+      id: "nominal",
+      severity: "nominal",
+      label: "All Systems",
+      detail: "All monitored systems are within safe margins. No predicted issues.",
+    });
+  }
+
+  return {
+    timeToMoonSec,
+    willReachMoonBeforeEnd,
+    projectedFood,
+    warnings,
+  };
+}
+
 function App() {
   const [view, setView] = useState("dashboard"); // "dashboard" | "telemetry" | "mission"
 
@@ -189,6 +341,8 @@ function App() {
   const [speechReady, setSpeechReady] = useState(false);
   const [ttsReady, setTtsReady] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
+
+  const [autoListen] = useState(false); // still false
 
   // dashboard metrics
   const [metrics, setMetrics] = useState({
@@ -209,6 +363,7 @@ function App() {
     distanceFromEarth: 200,
     distanceFromMoon: MOON_DISTANCE_KM - 200,
     trajectoryPhase: "PRE-LAUNCH",
+    foodPercent: FOOD_START_PERCENT,
   });
 
   // mission time + warp
@@ -218,11 +373,10 @@ function App() {
   const [currentPhaseId, setCurrentPhaseId] = useState(MISSION_PHASES[0].id);
 
   const [emergencyMode, setEmergencyMode] = useState("none"); // "none" | "abort" | "landing"
-  const [emergencyProgress, setEmergencyProgress] = useState(0); // 0–1 for landing anim
-  const [thrusterBoost, setThrusterBoost] = useState(0); // km/h offset
+  const [emergencyProgress, setEmergencyProgress] = useState(0);
+  const [thrusterBoost, setThrusterBoost] = useState(0);
   const [achievements, setAchievements] = useState([]);
 
-  // crew vitals
   const [crewVitals] = useState(
     CREW.map((member, idx) => ({
       ...member,
@@ -235,9 +389,41 @@ function App() {
   const recognitionRef = useRef(null);
   const voicesRef = useRef([]);
   const missionRunningRef = useRef(true);
-  const lastFrameTimeRef = useRef(null);
   const lastAnnouncedPhaseRef = useRef(null);
   const firedEventsRef = useRef(new Set());
+  const previousMissionTimeRef = useRef(0);
+
+  // ------------------------------------------------------------
+  // INTENT: TEMPERATURE QUERY
+  // ------------------------------------------------------------
+  function isTemperatureQuery(text) {
+    if (!text) return false;
+    const t = text.toLowerCase();
+    return (
+      t.includes("temperature") ||
+      t.includes("temp") ||
+      t.includes("cabin temp") ||
+      t.includes("inside temp") ||
+      t.includes("outside temp") ||
+      t.includes("how hot") ||
+      t.includes("how cold")
+    );
+  }
+
+  function answerTemperatureQuery() {
+    const cabin = telemetry.insideTemp.toFixed(1);
+    const outside = telemetry.outsideTemp.toFixed(0);
+
+    const line = `Cabin temperature is ${cabin} degrees Celsius. Outside hull temperature is ${outside} degrees Celsius.`;
+
+    setAssistantText(line);
+    const stamp = new Date().toLocaleTimeString();
+    setHistory((prev) => [
+      ...prev,
+      { sender: "COPILOT", text: line, time: stamp },
+    ]);
+    speakText(line);
+  }
 
   // ------------------------------------------------------------
   // SMART COMMAND INTERPRETER
@@ -255,7 +441,7 @@ function App() {
       t.includes("overall") ||
       t.includes("what's going on")
     ) {
-      return "Provide a complete mission status including velocity, distance from Earth, distance to Moon, trajectory phase, O2, CO2, cabin integrity, fuel reserves, power grid, orbital stability, comms quality, and crew vitals with pulse and blood pressure.";
+      return "Provide a complete mission status including velocity, distance from Earth, distance to Moon, trajectory phase, cabin temperature, outside temperature, O2, CO2, cabin integrity, fuel reserves, power grid, orbital stability, comms quality, crew vitals, and a brief predictive summary of any risks.";
     }
 
     if (
@@ -273,96 +459,32 @@ function App() {
     }
 
     if (t.includes("fuel") || t.includes("power")) {
-      return "Report fuel reserves, power grid level, and system stability.";
+      return "Report fuel reserves, food supplies, power grid level, and system stability.";
     }
 
     if (t.includes("velocity") || t.includes("speed")) {
       return "Report the spacecraft's velocity in km/h and km/s.";
     }
 
+    if (
+      t.includes("temperature") ||
+      t.includes("temp") ||
+      t.includes("hot") ||
+      t.includes("cold") ||
+      t.includes("environment")
+    ) {
+      return "Report cabin temperature, outside temperature, oxygen percentage, and carbon dioxide levels.";
+    }
+
+    if (t.includes("prediction") || t.includes("predictive") || t.includes("risk")) {
+      return "Summarize predictive risks based on trajectory, remaining time, food supplies, power, comms, and life support readings.";
+    }
+
     return text;
   }
 
-  // ------------------------------------------------------------
-  // SPEECH RECOGNITION
-  // ------------------------------------------------------------
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setSpeechReady(false);
-      setError("Speech recognition not available.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-
-    recognition.onstart = () => {
-      setIsListening(true);
-      setStatus();
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((r) => r[0].transcript)
-        .join(" ");
-
-      const cleaned = preprocessCommand(transcript);
-
-      setUserText(cleaned);
-      setHistory((prev) => [
-        ...prev,
-        { sender: "YOU", text: cleaned, time: new Date().toLocaleTimeString() },
-      ]);
-
-      sendToBackend(cleaned);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      if (!isSpeaking && !isLoading) {
-        setStatus();
-      }
-    };
-
-    recognition.onerror = (e) => {
-      console.error(e);
-      setError("Speech recognition error: " + e.error);
-    };
-
-    recognitionRef.current = recognition;
-    setSpeechReady(true);
-  }, []);
-
-  // ------------------------------------------------------------
-  // TTS: INIT VOICES
-  // ------------------------------------------------------------
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      setTtsReady(false);
-      return;
-    }
-
-    const synth = window.speechSynthesis;
-
-    const handleVoicesChanged = () => {
-      const voices = synth.getVoices();
-      voicesRef.current = voices;
-      setTtsReady(voices.length > 0);
-    };
-
-    handleVoicesChanged();
-    synth.addEventListener("voiceschanged", handleVoicesChanged);
-
-    return () => {
-      synth.removeEventListener("voiceschanged", handleVoicesChanged);
-    };
-  }, []);
+  // -------------------- PREDICTIVE INSIGHTS (DERIVED) --------
+  const predictive = getPredictiveInsights(telemetry, metrics, missionTimeSec);
 
   // ------------------------------------------------------------
   // BACKEND SEND
@@ -379,6 +501,7 @@ function App() {
         telemetry,
         dashboardMetrics: metrics,
         crewVitals,
+        predictiveInsights: predictive,
         history: history.map((h) => ({
           role: h.sender === "YOU" ? "user" : "assistant",
           content: h.text,
@@ -402,7 +525,11 @@ function App() {
 
       setHistory((prev) => [
         ...prev,
-        { sender: "COPILOT", text: reply, time: new Date().toLocaleTimeString() },
+        {
+          sender: "COPILOT",
+          text: reply,
+          time: new Date().toLocaleTimeString(),
+        },
       ]);
 
       setBackendOnline(true);
@@ -418,7 +545,7 @@ function App() {
   }
 
   // ------------------------------------------------------------
-  // TEXT → SPEECH
+  // TTS
   // ------------------------------------------------------------
   const speakText = (text) => {
     if (typeof window === "undefined" || !window.speechSynthesis) {
@@ -478,8 +605,19 @@ function App() {
 
     utterance.onend = () => {
       setIsSpeaking(false);
+
       if (!isListening && !isLoading) {
         setStatus();
+      }
+
+      if (autoListen && speechReady && recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+          setIsListening(true);
+          setStatus("AWAITING COMMAND…");
+        } catch (e) {
+          console.error("Could not restart listening:", e);
+        }
       }
     };
 
@@ -487,43 +625,266 @@ function App() {
       console.error("Speech synthesis error:", event);
       setError("Speech synthesis error: " + (event.error || "unknown"));
       setIsSpeaking(false);
+
+      if (autoListen && speechReady && recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+          setIsListening(true);
+          setStatus("AWAITING COMMAND…");
+        } catch (e) {
+          console.error("Could not restart listening after TTS error:", e);
+        }
+      }
     };
 
     synth.speak(utterance);
   };
 
   // ------------------------------------------------------------
-  // MISSION SIMULATION LOOP
+  // HIGH-LEVEL COMMAND ROUTER
   // ------------------------------------------------------------
-  // ---------------- MISSION LOOP (NEW, SIMPLE) ----------------
-useEffect(() => {
-  const TICK_MS = 100;        // update every 0.1s of real time
-  const BASE_RATE = 60;       // 1× warp = 60 mission seconds per real second
+  function routeCommand(raw, { source }) {
+    if (!raw) return;
+    const text = raw.trim();
+    const t = text.toLowerCase();
 
-  let cancelled = false;
+    if (isTemperatureQuery(text)) {
+      answerTemperatureQuery();
+      return;
+    }
 
-  const intervalId = setInterval(() => {
-    if (cancelled) return;
+    if (t.includes("mission abort") || (t.includes("abort") && t.includes("mission"))) {
+      triggerEmergency("abort");
+      return;
+    }
 
-    setMissionTimeSec((prev) => {
-      if (emergencyMode !== "none") return prev;
+    if (
+      t.includes("emergency landing") ||
+      t.includes("initiate landing") ||
+      t.includes("force landing") ||
+      t.includes("start landing")
+    ) {
+      triggerEmergency("landing");
+      return;
+    }
 
-      const deltaRealSec = TICK_MS / 1000;
-      const deltaMission = deltaRealSec * timeScale * BASE_RATE;
+    if (
+      t.includes("clear emergency") ||
+      t.includes("resume mission") ||
+      t.includes("return to normal") ||
+      t.includes("cancel emergency")
+    ) {
+      triggerEmergency("none");
+      return;
+    }
 
-      const next = prev + deltaMission;
-      return next >= MISSION_DURATION_SEC ? MISSION_DURATION_SEC : next;
-    });
-  }, TICK_MS);
+    if (
+      t.includes("open telemetry") ||
+      t.includes("crew telemetry") ||
+      t.includes("show telemetry")
+    ) {
+      setView("telemetry");
+      speakText("Opening crew telemetry panel.");
+      return;
+    }
 
-  return () => {
-    cancelled = true;
-    clearInterval(intervalId);
-  };
-}, [timeScale, emergencyMode]);
+    if (
+      t.includes("open mission control") ||
+      t.includes("mission control") ||
+      t.includes("open simulation") ||
+      t.includes("show mission control")
+    ) {
+      setView("mission");
+      speakText("Bringing up mission control panel.");
+      return;
+    }
 
+    if (
+      t.includes("back to dashboard") ||
+      t.includes("open dashboard") ||
+      t.includes("main hud") ||
+      t.includes("show dashboard")
+    ) {
+      setView("dashboard");
+      speakText("Returning to primary HUD.");
+      return;
+    }
 
-  // emergency landing progression (visual only)
+    if (
+      t.includes("increase warp") ||
+      t.includes("go faster") ||
+      t.includes("speed up time") ||
+      t.includes("faster time")
+    ) {
+      setTimeScale((prev) => {
+        const next = clamp(prev * 2, 0.25, 200);
+        speakText(`Increasing mission time warp to ${next.toFixed(2)} times.`);
+        return next;
+      });
+      return;
+    }
+
+    if (
+      t.includes("decrease warp") ||
+      t.includes("slow down time") ||
+      t.includes("go slower") ||
+      t.includes("reduce warp")
+    ) {
+      setTimeScale((prev) => {
+        const next = clamp(prev / 2, 0.25, 200);
+        speakText(`Reducing mission time warp to ${next.toFixed(2)} times.`);
+        return next;
+      });
+      return;
+    }
+
+    if (
+      t.includes("retro burn") ||
+      t.includes("slow down spacecraft") ||
+      t.includes("slow down the spacecraft") ||
+      t.includes("reduce speed")
+    ) {
+      adjustThruster(-500);
+      return;
+    }
+
+    if (
+      t.includes("forward burst") ||
+      t.includes("speed up spacecraft") ||
+      t.includes("speed up the spacecraft") ||
+      t.includes("increase speed")
+    ) {
+      adjustThruster(500);
+      return;
+    }
+
+    const cleaned = preprocessCommand(text);
+    sendToBackend(cleaned);
+  }
+
+  // ------------------------------------------------------------
+  // SPEECH RECOGNITION (NO WAKE WORD)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSpeechReady(false);
+      setError("Speech recognition not available.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false; // one shot per start()
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setStatus("LISTENING… give your command.");
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((r) => r[0].transcript)
+        .join(" ");
+
+      console.log("🎧 Heard:", transcript);
+
+      const userVisible = transcript.trim();
+      if (!userVisible) return;
+
+      const stamp = new Date().toLocaleTimeString();
+      setUserText(userVisible);
+      setHistory((prev) => [
+        ...prev,
+        { sender: "YOU", text: userVisible, time: stamp },
+      ]);
+
+      // Directly route whatever was spoken
+      routeCommand(userVisible, { source: "voice" });
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech recognition error:", e);
+      setError("Speech recognition error: " + e.error);
+      setIsListening(false);
+      setStatus("MIC ERROR");
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      if (!isSpeaking && !isLoading) {
+        setStatus();
+      }
+    };
+
+    recognitionRef.current = recognition;
+    setSpeechReady(true);
+
+    return () => {
+      recognition.onend = null;
+      recognition.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ------------------------------------------------------------
+  // TTS VOICES INIT
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setTtsReady(false);
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+
+    const handleVoicesChanged = () => {
+      const voices = synth.getVoices();
+      voicesRef.current = voices;
+      setTtsReady(voices.length > 0);
+    };
+
+    handleVoicesChanged();
+    synth.addEventListener("voiceschanged", handleVoicesChanged);
+
+    return () => {
+      synth.removeEventListener("voiceschanged", handleVoicesChanged);
+    };
+  }, []);
+
+  // ------------------------------------------------------------
+  // MISSION SIM LOOP
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const TICK_MS = 100;
+    const BASE_RATE = 60;
+
+    let cancelled = false;
+
+    const intervalId = setInterval(() => {
+      if (cancelled) return;
+
+      setMissionTimeSec((prev) => {
+        const deltaRealSec = TICK_MS / 1000;
+        const deltaMission = deltaRealSec * timeScale * BASE_RATE;
+
+        const next = prev + deltaMission;
+        return next >= MISSION_DURATION_SEC ? MISSION_DURATION_SEC : next;
+      });
+    }, TICK_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [timeScale]);
+
+  // emergency landing progression
   useEffect(() => {
     if (emergencyMode !== "landing") {
       setEmergencyProgress(0);
@@ -531,7 +892,7 @@ useEffect(() => {
     }
 
     let start = null;
-    const durationMs = 120000; // 2 minutes real-time landing anim
+    const durationMs = 120000;
     let rafId;
 
     function step(ts) {
@@ -547,17 +908,17 @@ useEffect(() => {
     return () => cancelAnimationFrame(rafId);
   }, [emergencyMode]);
 
-  // recompute telemetry + metrics + phase from mission time
+  // recompute telemetry + metrics + phase
   useEffect(() => {
     const baseProgress = clamp(missionTimeSec / MISSION_DURATION_SEC, 0, 1);
-
-    // mission normal distance
     const minLEO = 200;
-    let distanceFromEarth =
-      minLEO + baseProgress * (MOON_DISTANCE_KM - minLEO);
-    let distanceFromMoon = Math.max(MOON_DISTANCE_KM - distanceFromEarth, 0);
 
-    // velocity profile (base)
+    const deltaMissionSec = Math.max(
+      missionTimeSec - (previousMissionTimeRef.current || 0),
+      0
+    );
+    previousMissionTimeRef.current = missionTimeSec;
+
     let velocityBase;
     if (baseProgress < 0.1) {
       velocityBase = 0 + baseProgress * 80000;
@@ -568,7 +929,6 @@ useEffect(() => {
       if (velocityBase < 2000) velocityBase = 2000;
     }
 
-    // fuel drains more during burns (start + near LOI)
     let fuelDrop;
     if (baseProgress < 0.1) {
       fuelDrop = baseProgress * 30;
@@ -579,19 +939,12 @@ useEffect(() => {
     }
     let newFuel = clamp(82 - fuelDrop, 5, 100);
 
-    // emergency modes override some values
     if (emergencyMode === "landing") {
-      // simulate descending towards a safe landing (distance to 0, speed dropping)
-      const startDist = distanceFromEarth;
-      distanceFromEarth = startDist * (1 - emergencyProgress);
-      distanceFromMoon = Math.max(MOON_DISTANCE_KM - distanceFromEarth, 0);
       velocityBase = 26000 * (1 - emergencyProgress) + 2000;
     } else if (emergencyMode === "abort") {
-      // freeze distance, lower speed a bit to represent safe orbit
       velocityBase = Math.max(12000, velocityBase * 0.6);
     }
 
-    // thruster boost (positive = accelerate, negative = retro-burn)
     let velocity = velocityBase + thrusterBoost;
     newFuel = clamp(newFuel - Math.abs(thrusterBoost) / 2000, 0, 100);
 
@@ -605,28 +958,70 @@ useEffect(() => {
 
     const insideTemp = 22.5;
     const outsideTemp =
-      baseProgress < 0.5 ? -160 - baseProgress * 40 : -200 + (baseProgress - 0.5) * 20;
+      baseProgress < 0.5
+        ? -160 - baseProgress * 40
+        : -200 + (baseProgress - 0.5) * 20;
     const o2 = 98.2 - baseProgress * 1.5;
     const co2 = 0.04 + baseProgress * 0.03;
 
     const phase = getPhaseForProgress(baseProgress);
 
-    setTelemetry((prev) => ({
-      ...prev,
-      velocity,
-      insideTemp,
-      outsideTemp,
-      o2,
-      co2,
-      distanceFromEarth,
-      distanceFromMoon,
-      trajectoryPhase:
-        emergencyMode === "landing"
-          ? "EMERGENCY LANDING SEQUENCE"
-          : emergencyMode === "abort"
-          ? "ABORT TRAJECTORY – SAFE ORBIT"
-          : phase.label,
-    }));
+    setTelemetry((prev) => {
+      let distanceFromEarth = prev.distanceFromEarth ?? minLEO;
+
+      if (deltaMissionSec > 0) {
+        if (emergencyMode === "landing") {
+          const descentSpeedKmH = 18000;
+          const velKmPerSec = descentSpeedKmH / 3600;
+          distanceFromEarth = Math.max(
+            distanceFromEarth - velKmPerSec * deltaMissionSec,
+            0
+          );
+        } else if (emergencyMode === "abort") {
+          const velKmPerSec = (velocity / 3600) * 0.1;
+          distanceFromEarth = clamp(
+            distanceFromEarth + velKmPerSec * deltaMissionSec,
+            minLEO,
+            MOON_DISTANCE_KM
+          );
+        } else {
+          const velKmPerSec = velocity / 3600;
+          distanceFromEarth = clamp(
+            distanceFromEarth + velKmPerSec * deltaMissionSec,
+            minLEO,
+            MOON_DISTANCE_KM
+          );
+        }
+      }
+
+      const distanceFromMoon = Math.max(MOON_DISTANCE_KM - distanceFromEarth, 0);
+
+      // food consumption
+      const foodRatePerSec = FOOD_CONSUMPTION_PERCENT_PER_HOUR / 3600;
+      const newFood = clamp(
+        prev.foodPercent - foodRatePerSec * deltaMissionSec,
+        0,
+        100
+      );
+
+      return {
+        ...prev,
+        velocity,
+        insideTemp,
+        outsideTemp,
+        o2,
+        co2,
+        distanceFromEarth,
+        distanceFromMoon,
+        foodPercent: newFood,
+        trajectoryPhase:
+          emergencyMode === "landing"
+            ? "EMERGENCY LANDING SEQUENCE"
+            : emergencyMode === "abort"
+            ? "ABORT TRAJECTORY – SAFE ORBIT"
+            : phase.label,
+      };
+    });
 
     setMetrics((prev) => ({
       ...prev,
@@ -635,7 +1030,6 @@ useEffect(() => {
 
     setCurrentPhaseId((prevId) => (prevId === phase.id ? prevId : phase.id));
 
-    // special events / micro incidents
     SPECIAL_EVENTS.forEach((ev) => {
       if (
         baseProgress >= ev.triggerProgress &&
@@ -662,7 +1056,7 @@ useEffect(() => {
     }
   }, [missionTimeSec, emergencyMode, emergencyProgress, thrusterBoost]);
 
-  // auto voice announcement when phase changes + ETA line
+  // phase announcements
   useEffect(() => {
     const phase = MISSION_PHASES.find((p) => p.id === currentPhaseId);
     if (!phase) return;
@@ -697,15 +1091,19 @@ useEffect(() => {
 
     setAchievements((prev) => [
       ...prev,
-      { id: `phase-${phase.id}`, label: `Phase reached: ${phase.label}`, time: stamp },
+      {
+        id: `phase-${phase.id}`,
+        label: `Phase reached: ${phase.label}`,
+        time: stamp,
+      },
     ]);
 
     playChime();
     speakText(line);
-  }, [currentPhaseId]);
+  }, [currentPhaseId, missionTimeSec]);
 
   // ------------------------------------------------------------
-  // UI ACTION HANDLERS
+  // UI HANDLERS
   // ------------------------------------------------------------
   function handleStartListening() {
     try {
@@ -722,14 +1120,15 @@ useEffect(() => {
 
   function handleSendText() {
     if (!userText.trim()) return;
-    const cleaned = preprocessCommand(userText);
+    const raw = userText.trim();
 
+    const stamp = new Date().toLocaleTimeString();
     setHistory((prev) => [
       ...prev,
-      { sender: "YOU", text: cleaned, time: new Date().toLocaleTimeString() },
+      { sender: "YOU", text: raw, time: stamp },
     ]);
 
-    sendToBackend(cleaned);
+    routeCommand(raw, { source: "text" });
   }
 
   function handleStopSpeaking() {
@@ -767,7 +1166,11 @@ useEffect(() => {
       speakText(line);
       setHistory((prev) => [
         ...prev,
-        { sender: "COPILOT", text: line, time: new Date().toLocaleTimeString() },
+        {
+          sender: "COPILOT",
+          text: line,
+          time: new Date().toLocaleTimeString(),
+        },
       ]);
     } else if (mode === "landing") {
       setEmergencyMode("landing");
@@ -777,7 +1180,11 @@ useEffect(() => {
       speakText(line);
       setHistory((prev) => [
         ...prev,
-        { sender: "COPILOT", text: line, time: new Date().toLocaleTimeString() },
+        {
+          sender: "COPILOT",
+          text: line,
+          time: new Date().toLocaleTimeString(),
+        },
       ]);
     }
   }
@@ -851,9 +1258,18 @@ useEffect(() => {
         </div>
 
         <div className="hud-top-status">
-          <StatusPill label="AI CORE" state={backendOnline ? "online" : "offline"} />
-          <StatusPill label="VOICE IN" state={speechReady ? "online" : "offline"} />
-          <StatusPill label="VOICE OUT" state={ttsReady ? "online" : "offline"} />
+          <StatusPill
+            label="AI CORE"
+            state={backendOnline ? "online" : "offline"}
+          />
+          <StatusPill
+            label="VOICE IN"
+            state={speechReady ? "online" : "offline"}
+          />
+          <StatusPill
+            label="VOICE OUT"
+            state={ttsReady ? "online" : "offline"}
+          />
         </div>
 
         <div className="hud-top-right">
@@ -873,7 +1289,7 @@ useEffect(() => {
         </div>
       </header>
 
-      {/* MAIN GRID (scrollable) */}
+      {/* MAIN GRID */}
       {view === "dashboard" ? (
         <main
           className="hud-main"
@@ -881,7 +1297,6 @@ useEffect(() => {
         >
           {/* LEFT PANEL */}
           <section className="hud-panel hud-panel-left">
-            {/* USER COMMAND */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">USER COMMAND</div>
               <div className="hud-card-body">
@@ -889,12 +1304,11 @@ useEffect(() => {
                   className="hud-textarea"
                   value={userText}
                   onChange={(e) => setUserText(e.target.value)}
-                  placeholder="Speak using mic or type a command…"
+                  placeholder='Type or press mic and say: "What is our status?"'
                 />
               </div>
             </div>
 
-            {/* COPILOT RESPONSE */}
             <div className="hud-card hud-card-primary">
               <div className="hud-card-header">
                 COPILOT RESPONSE {isLoading && <span className="hud-pulse-dot" />}
@@ -906,7 +1320,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* COMMS LOG */}
             <div className="hud-card hud-card-compact hud-history">
               <div className="hud-card-header">COMMS LOG</div>
               <div className="hud-card-body hud-history-body">
@@ -932,7 +1345,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* CONTROLS */}
             <div className="hud-controls-row">
               <button
                 className={`hud-btn ${isListening ? "hud-btn-active" : ""}`}
@@ -985,7 +1397,7 @@ useEffect(() => {
                     ? "LISTENING"
                     : isSpeaking
                     ? "SPEAKING"
-                    : "TAP TO ACTIVATE"}
+                    : "PRESS MIC AND SPEAK"}
                 </span>
               </button>
 
@@ -995,7 +1407,6 @@ useEffect(() => {
 
           {/* RIGHT PANEL */}
           <section className="hud-panel hud-panel-right">
-            {/* SYSTEM STATUS */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">SYSTEM STATUS</div>
               <div className="hud-card-body hud-system-grid">
@@ -1006,7 +1417,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* MISSION METRICS */}
             <div
               className="hud-card hud-card-compact hud-clickable"
               onClick={() => setView("telemetry")}
@@ -1020,15 +1430,80 @@ useEffect(() => {
                 <MetricBar label="Orbital Stability" value={metrics.orbit} />
                 <MetricBar label="Cabin Integrity" value={metrics.cabin} />
                 <MetricBar label="Comms Quality" value={metrics.comms} />
+                <MetricBar label="Food Supplies" value={telemetry.foodPercent} />
               </div>
             </div>
 
-            {/* MISSION SIM CARD */}
+            {/* Predictive insights card */}
+            <div className="hud-card hud-card-compact">
+              <div className="hud-card-header">PREDICTIVE INSIGHTS</div>
+              <div className="hud-card-body hud-mission-body">
+                <p>
+                  <strong>ETA to Moon:&nbsp;</strong>
+                  {predictive.timeToMoonSec != null
+                    ? `${(predictive.timeToMoonSec / 3600).toFixed(1)} hours`
+                    : "Not enough velocity data."}
+                </p>
+                <p>
+                  <strong>Arrival before mission end:&nbsp;</strong>
+                  {predictive.timeToMoonSec == null
+                    ? "Unknown"
+                    : predictive.willReachMoonBeforeEnd
+                    ? "Yes, within schedule."
+                    : "No, correction burn needed."}
+                </p>
+                <p>
+                  <strong>Projected food at mission end:&nbsp;</strong>
+                  {predictive.projectedFood.toFixed(1)}%
+                </p>
+
+                <hr className="hud-divider" />
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {predictive.warnings.map((w) => {
+                    let bg = "rgba(34,197,94,0.12)";
+                    let border = "1px solid rgba(34,197,94,0.4)";
+                    let icon = "🟢";
+
+                    if (w.severity === "warning") {
+                      bg = "rgba(234,179,8,0.12)";
+                      border = "1px solid rgba(234,179,8,0.5)";
+                      icon = "🟠";
+                    } else if (w.severity === "critical") {
+                      bg = "rgba(239,68,68,0.12)";
+                      border = "1px solid rgba(239,68,68,0.6)";
+                      icon = "🔴";
+                    }
+
+                    return (
+                      <div
+                        key={w.id}
+                        style={{
+                          background: bg,
+                          border,
+                          borderRadius: 8,
+                          padding: "6px 8px",
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                          {icon} {w.label}
+                        </div>
+                        <div style={{ opacity: 0.9 }}>{w.detail}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
             <div
               className="hud-card hud-card-compact hud-clickable"
               onClick={() => setView("mission")}
             >
-              <div className="hud-card-header">MISSION SIMULATION – TAP FOR CONTROL</div>
+              <div className="hud-card-header">
+                MISSION SIMULATION – TAP FOR CONTROL
+              </div>
               <div className="hud-card-body hud-mission-summary-body">
                 <div className="hud-mission-summary-row">
                   <span>Progress</span>
@@ -1051,7 +1526,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* MISSION CONTEXT */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">MISSION CONTEXT</div>
               <div className="hud-card-body hud-mission-body">
@@ -1061,12 +1535,12 @@ useEffect(() => {
                 </p>
                 <p>
                   Hybrid Apollo-style trajectory with autonomous phase
-                  announcements and emergency control modes.
+                  announcements, emergency control modes, and predictive health
+                  monitoring inspired by NASA PHM systems.
                 </p>
               </div>
             </div>
 
-            {/* DIAGNOSTICS */}
             <div className="hud-card hud-card-compact hud-error-card">
               <div className="hud-card-header">DIAGNOSTICS</div>
               <div className="hud-card-body hud-diagnostics-body">
@@ -1088,16 +1562,11 @@ useEffect(() => {
           </section>
         </main>
       ) : view === "telemetry" ? (
-        // ---------------------------------------------
-        // TELEMETRY PAGE
-        // ---------------------------------------------
         <main
           className="hud-main telemetry-main"
           style={{ overflowY: "auto", maxHeight: "calc(100vh - 96px)" }}
         >
-          {/* LEFT SIDE */}
           <section className="hud-panel telemetry-left">
-            {/* VELOCITY PANEL */}
             <div className="hud-card hud-card-primary telemetry-velocity-card">
               <div className="hud-card-header">VELOCITY VECTOR</div>
               <div className="hud-card-body telemetry-velocity-body">
@@ -1144,21 +1613,22 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* DISTANCE / TRAJECTORY */}
             <div className="hud-card hud-card-compact telemetry-distance-card">
               <div className="hud-card-header">TRAJECTORY / DISTANCE</div>
               <div className="hud-card-body telemetry-distance-body">
                 <div className="distance-box">
                   <div className="distance-label">DISTANCE FROM EARTH</div>
                   <div className="distance-value">
-                    {Math.round(telemetry.distanceFromEarth).toLocaleString()} km
+                    {Math.round(telemetry.distanceFromEarth).toLocaleString()}{" "}
+                    km
                   </div>
                 </div>
 
                 <div className="distance-box">
                   <div className="distance-label">DISTANCE TO MOON</div>
                   <div className="distance-value">
-                    {Math.round(telemetry.distanceFromMoon).toLocaleString()} km
+                    {Math.round(telemetry.distanceFromMoon).toLocaleString()}{" "}
+                    km
                   </div>
                 </div>
 
@@ -1194,9 +1664,7 @@ useEffect(() => {
             </div>
           </section>
 
-          {/* RIGHT SIDE */}
           <section className="hud-panel telemetry-right">
-            {/* CREW VITALS */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">CREW VITALS – PULSE & BP</div>
               <div className="hud-card-body telemetry-crew-body">
@@ -1218,7 +1686,11 @@ useEffect(() => {
                         <div
                           className="crew-pulse-fill"
                           style={{
-                            width: `${clamp(((c.pulse - 50) / 60) * 100, 0, 100)}%`,
+                            width: `${clamp(
+                              ((c.pulse - 50) / 60) * 100,
+                              0,
+                              100
+                            )}%`,
                           }}
                         />
                       </div>
@@ -1228,7 +1700,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* HOLOGRAM */}
             <div className="hud-card hud-card-compact telemetry-holo-card">
               <div className="hud-card-header">CREW HOLOGRAM GRID</div>
               <div className="hud-card-body crew-holo-grid">
@@ -1253,7 +1724,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* CREW MANIFEST */}
             <div className="hud-card hud-card-compact telemetry-legend-card">
               <div className="hud-card-header">CREW MANIFEST</div>
               <div className="hud-card-body telemetry-legend-body">
@@ -1268,16 +1738,11 @@ useEffect(() => {
           </section>
         </main>
       ) : (
-        // ---------------------------------------------
-        // THIRD PAGE – MISSION CONTROL
-        // ---------------------------------------------
         <main
           className="hud-main telemetry-main"
           style={{ overflowY: "auto", maxHeight: "calc(100vh - 96px)" }}
         >
-          {/* LEFT SIDE: mission vector + warp + flight controls */}
           <section className="hud-panel telemetry-left">
-            {/* MISSION VECTOR */}
             <div className="hud-card hud-card-primary telemetry-velocity-card">
               <div className="hud-card-header">MISSION VECTOR</div>
               <div className="hud-card-body telemetry-velocity-body">
@@ -1322,7 +1787,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* WARP DRIVE CONTROL */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">WARP DRIVE CONTROL</div>
               <div className="hud-card-body">
@@ -1373,29 +1837,27 @@ useEffect(() => {
                 <div className="hud-controls-row" style={{ marginTop: "0.8rem" }}>
                   <span>Manual:</span>
                   <input
-  className="hud-time-input"
-  type="number"
-  min="0.25"
-  max="200"
-  step="0.25"
-  value={customScaleInput}
-  onChange={(e) => {
-    const v = e.target.value;
-    setCustomScaleInput(v);
+                    className="hud-time-input"
+                    type="number"
+                    min="0.25"
+                    max="200"
+                    step="0.25"
+                    value={customScaleInput}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCustomScaleInput(v);
 
-    const parsed = parseFloat(v);
-    if (!isNaN(parsed) && parsed > 0) {
-      const safe = clamp(parsed, 0.25, 200);
-      setTimeScale(safe);
-    }
-  }}
-/>
-
+                      const parsed = parseFloat(v);
+                      if (!isNaN(parsed) && parsed > 0) {
+                        const safe = clamp(parsed, 0.25, 200);
+                        setTimeScale(safe);
+                      }
+                    }}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* FLIGHT CONTROLS: EMERGENCY + THRUSTERS + PHASE JUMP */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">FLIGHT CONTROLS</div>
               <div className="hud-card-body">
@@ -1483,23 +1945,23 @@ useEffect(() => {
             </div>
           </section>
 
-          {/* RIGHT SIDE: trajectory, env, achievements */}
           <section className="hud-panel telemetry-right">
-            {/* TRAJECTORY / GRAVITY */}
             <div className="hud-card hud-card-compact telemetry-distance-card">
               <div className="hud-card-header">TRAJECTORY / GRAVITY WELL</div>
               <div className="hud-card-body telemetry-distance-body">
                 <div className="distance-box">
                   <div className="distance-label">DISTANCE FROM EARTH</div>
                   <div className="distance-value">
-                    {Math.round(telemetry.distanceFromEarth).toLocaleString()} km
+                    {Math.round(telemetry.distanceFromEarth).toLocaleString()}{" "}
+                    km
                   </div>
                 </div>
 
                 <div className="distance-box">
                   <div className="distance-label">DISTANCE TO MOON</div>
                   <div className="distance-value">
-                    {Math.round(telemetry.distanceFromMoon).toLocaleString()} km
+                    {Math.round(telemetry.distanceFromMoon).toLocaleString()}{" "}
+                    km
                   </div>
                 </div>
 
@@ -1526,7 +1988,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* ENVIRONMENT */}
             <div className="hud-card hud-card-compact">
               <div className="hud-card-header">ENVIRONMENT & LIFE SUPPORT</div>
               <div className="hud-card-body telemetry-distance-body">
@@ -1557,10 +2018,16 @@ useEffect(() => {
                     {telemetry.co2.toFixed(3)} %
                   </div>
                 </div>
+
+                <div className="distance-box">
+                  <div className="distance-label">FOOD SUPPLIES</div>
+                  <div className="distance-value">
+                    {telemetry.foodPercent.toFixed(1)} %
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* PHASE TIMELINE */}
             <div className="hud-card hud-card-compact telemetry-legend-card">
               <div className="hud-card-header">PHASE TIMELINE</div>
               <div className="hud-card-body telemetry-legend-body">
@@ -1584,7 +2051,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* ACHIEVEMENTS / EVENTS */}
             <div className="hud-card hud-card-compact telemetry-legend-card">
               <div className="hud-card-header">MISSION ACHIEVEMENTS & EVENTS</div>
               <div className="hud-card-body telemetry-legend-body">
